@@ -169,8 +169,18 @@ public:
 
     void set_input(const llama_ubatch * ubatch);
 
+    void set_input_k_idxs(ggml_tensor * k_idxs, const llama_ubatch * ubatch) const;
+    void set_input_v_idxs(ggml_tensor * v_idxs, const llama_ubatch * ubatch) const;
+    void set_input_kq_mask(ggml_tensor * kq_mask, const llama_ubatch * ubatch, bool causal) const;
+    void set_input_k_rot(ggml_tensor * k_rot) const {}
+    void set_input_v_rot(ggml_tensor * v_rot) const {}
+
     // Allocated slot indices for current ubatch (one per token)
     std::vector<int32_t> token_slots; // slot index in HyphalGraph
+
+    // Saved tensors for data write-back after graph compute
+    mutable std::vector<ggml_tensor*> k_cur_tensors;
+    mutable std::vector<ggml_tensor*> v_cur_tensors;
 
 private:
     llama_hyphal_memory * mem;
@@ -241,6 +251,9 @@ public:
     uint32_t n_layer()   const { return n_layer_; }
     uint32_t n_embd_k()  const { return n_embd_k_; }
     uint32_t n_embd_v()  const { return n_embd_v_; }
+    uint32_t n_head_kv() const { return n_head_kv_; }
+    uint32_t n_embd_head_k() const { return n_embd_head_k_; }
+    uint32_t n_embd_head_v() const { return n_embd_head_v_; }
 
     // Save learned graph to disk
     bool save(const std::string & path) const { return graph_.save(path); }

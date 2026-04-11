@@ -2725,11 +2725,44 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
         }
 
         auto create_tensor = [&](const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags) -> ggml_tensor * {
+#ifdef HYPHAL_ENABLED
+            // Biological Weight-Tying (BWT) Logic:
+            // If the model is in Zone 1 (65% of layers), we alias unique weights to Layer 0.
+            // This turns the habitual part of the model into a universal recurrent block.
+            if (tn.bid > 0 && tn.bid < (int)(hparams.n_layer * 0.65)) {
+                bool shareable = false;
+                switch (tn.tensor) {
+                    case LLM_TENSOR_ATTN_Q:
+                    case LLM_TENSOR_ATTN_K:
+                    case LLM_TENSOR_ATTN_V:
+                    case LLM_TENSOR_ATTN_OUT:
+                    case LLM_TENSOR_FFN_GATE:
+                    case LLM_TENSOR_FFN_UP:
+                    case LLM_TENSOR_FFN_DOWN:
+                    case LLM_TENSOR_ATTN_NORM:
+                    case LLM_TENSOR_FFN_NORM:
+                        shareable = true;
+                        break;
+                    default:
+                        break;
+                }
+                if (shareable) {
+                    // Redirect name to Layer 0
+                    LLM_TN_IMPL shared_tn(tn.arch, tn.tensor, tn.suffix, 0, tn.xid);
+                    // We must use Layer 0's buffer type list to ensure it sits on the same device
+                    const buft_list_t * buft_list_layer0 = pimpl->dev_layer.at(0).buft_list;
+                    return ml.create_tensor(
+                        hparams, &pimpl->cpu_buft_list, pimpl->dev_input.buft_list, pimpl->dev_output.buft_list, buft_list_layer0,
+                        shared_tn, ne, flags);
+                }
+            }
+#endif
             const buft_list_t * buft_list_layer = tn.bid == -1 ? nullptr : pimpl->dev_layer.at(tn.bid).buft_list;
             return ml.create_tensor(
                 hparams, &pimpl->cpu_buft_list, pimpl->dev_input.buft_list, pimpl->dev_output.buft_list, buft_list_layer,
                 tn, ne, flags);
         };
+
 
         layers.resize(n_layer);
 
@@ -2812,6 +2845,10 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                                 layer.ffn_down_shexp = create_tensor(tn(LLM_TENSOR_FFN_DOWN_SHEXP, "weight", i), {hparams.n_ff_shexp, n_embd}, 0);
                             }
                         }
+#ifdef HYPHAL_ENABLED
+                        layer.hyphal_delta_a = create_tensor(tn(LLM_TENSOR_HYPHAL_DELTA_A, "weight", i), {n_embd, 16}, TENSOR_NOT_REQUIRED);
+                        layer.hyphal_delta_b = create_tensor(tn(LLM_TENSOR_HYPHAL_DELTA_B, "weight", i), {16, n_embd}, TENSOR_NOT_REQUIRED);
+#endif
                     }
                 } break;
             case LLM_ARCH_LLADA:
@@ -3101,6 +3138,10 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                         if (!layer.ffn_post_norm) {
                             layer.ffn_post_norm = create_tensor(tn(LLM_TENSOR_FFN_POST_NORM, "weight", i), {n_embd}, 0);
                         }
+#ifdef HYPHAL_ENABLED
+                        layer.hyphal_delta_a = create_tensor(tn(LLM_TENSOR_HYPHAL_DELTA_A, "weight", i), {n_embd, 16}, TENSOR_NOT_REQUIRED);
+                        layer.hyphal_delta_b = create_tensor(tn(LLM_TENSOR_HYPHAL_DELTA_B, "weight", i), {16, n_embd}, TENSOR_NOT_REQUIRED);
+#endif
                     }
                 } break;
             case LLM_ARCH_DBRX:

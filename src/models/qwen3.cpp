@@ -3,7 +3,8 @@
 #ifdef HYPHAL_ENABLED
 extern "C" int  physarum_get_zone(int layer);
 extern "C" int  hyphal_session_is_active(void);
-extern "C" void physarum_step(void);
+extern "C" float physarum_get_conductance(int layer);
+extern "C" void  physarum_step(void);
 static const int HYPHAL_ZONE_SSM = 0; // SSM zone id from physarum_state.h
 #endif
 
@@ -78,9 +79,19 @@ llm_build_qwen3::llm_build_qwen3(const llama_model & model, const llm_graph_para
 #ifdef HYPHAL_ENABLED
             {
                 if (hyphal_session_is_active()) {
-                    if (physarum_get_zone(il) == HYPHAL_ZONE_SSM) {
-                        cur = ggml_scale(ctx0, cur, 0.0f);
-                        cb(cur, "attn_ssm_zero", il);
+                    int zone = physarum_get_zone(il);
+                    if (zone == HYPHAL_ZONE_SSM) {
+                        // Biological Parameter Asymmetry (BPA) - Phase 2
+                        // Shared weights contribute ~10% by default (Habitual mode).
+                        // Unique low-rank Delta (Adaptive Capacity) is scaled by conductance.
+                        if (model.layers[il].hyphal_delta_a && model.layers[il].hyphal_delta_b) {
+                             ggml_tensor * tmp   = ggml_mul_mat(ctx0, model.layers[il].hyphal_delta_a, cur);
+                             ggml_tensor * delta = ggml_mul_mat(ctx0, model.layers[il].hyphal_delta_b, tmp);
+                             delta = ggml_scale(ctx0, delta, physarum_get_conductance(il));
+                             cur   = ggml_add(ctx0, cur, delta);
+                        }
+                        cur = ggml_scale(ctx0, cur, 0.10f); // Habitual attenuation
+                        cb(cur, "attn_ssm_habit", il);
                     }
                     if (il == n_layer - 1) {
                         physarum_step();

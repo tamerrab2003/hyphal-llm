@@ -497,6 +497,8 @@ struct llama_layer {
     struct llama_layer_shortconv shortconv;
 
     struct llama_layer_nextn nextn;
+    struct ggml_tensor * hyphal_delta_a = nullptr;
+    struct ggml_tensor * hyphal_delta_b = nullptr;
 };
 
 struct llama_model {

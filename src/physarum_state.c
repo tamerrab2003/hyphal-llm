@@ -123,6 +123,15 @@ int physarum_active_heads(int layer) {
     return count;
 }
 
+float physarum_get_conductance(int layer) {
+    if (layer < 0 || layer >= g_physarum_n_layers) return 0.0f;
+    float sum = 0.0f;
+    for (int h = 0; h < g_physarum_n_heads; h++) {
+        sum += g_physarum_conductances[layer * PHYSARUM_MAX_HEADS + h];
+    }
+    return sum / (float)g_physarum_n_heads;
+}
+
 int physarum_active_heads_total(void) {
     int total = 0;
     for (int l = 0; l < g_physarum_n_layers; l++) {

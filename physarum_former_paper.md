@@ -1,7 +1,7 @@
 # PhysarumFormer: A Biologically-Zoned Architecture for Resource-Efficient Language Models
 
-**[Your Name]**  
-[Your Institution]
+**Tamer Awad**  
+Menofia Univ, EGY
 
 ---
 
@@ -192,7 +192,7 @@ Everything else in llama.cpp is unchanged. The fork stays mergeable with upstrea
 
 ```bash
 # Build HyphalLLM fork
-git clone https://github.com/[your-name]/hyphal-llm
+git clone https://github.com/tamerrab2003/hyphal-llm
 cd hyphal-llm && mkdir build && cd build
 cmake .. -DCMAKE_BUILD_TYPE=Release
 make -j$(nproc)

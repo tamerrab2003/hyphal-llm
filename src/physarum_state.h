@@ -58,6 +58,7 @@ int physarum_get_zone(int layer);
 
 /* Count active heads for a layer */
 int physarum_active_heads(int layer);
+float physarum_get_conductance(int layer);
 
 /* Count total active heads across all layers */
 int physarum_active_heads_total(void);

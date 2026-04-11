@@ -6,6 +6,9 @@
 #include "llama-io.h"
 #include "llama-memory.h"
 #include "llama-mmap.h"
+#include "llama-memory-hybrid-iswa.h"
+#include "llama-memory-recurrent.h"
+#include "llama-hyphal-memory.h"
 #include "llama-model.h"
 #include "llama-ext.h"
 
@@ -1258,6 +1261,53 @@ llm_graph_result * llama_context::process_ubatch(const llama_ubatch & ubatch, ll
         LLAMA_LOG_ERROR("%s: failed to compute graph, compute status: %d\n", __func__, status);
         ret = status;
         return nullptr;
+    }
+
+    if (auto * hctx = dynamic_cast<llama_hyphal_memory_context *>(mctx)) {
+        auto * hmem = dynamic_cast<llama_hyphal_memory *>(memory.get());
+        if (hmem) {
+            std::vector<std::vector<float>> k_bufs(hmem->n_layer(), std::vector<float>(hmem->n_embd_k() * ubatch.n_tokens));
+            std::vector<std::vector<float>> v_bufs(hmem->n_layer(), std::vector<float>(hmem->n_embd_v() * ubatch.n_tokens));
+
+            for (uint32_t il = 0; il < hmem->n_layer(); ++il) {
+                ggml_tensor * k_cur = hctx->k_cur_tensors[il];
+                ggml_tensor * v_cur = hctx->v_cur_tensors[il];
+                if (!k_cur || !v_cur) continue;
+
+                ggml_backend_t k_backend = ggml_backend_sched_get_tensor_backend(sched.get(), k_cur);
+                if (k_backend) {
+                    ggml_backend_tensor_get_async(k_backend, k_cur, k_bufs[il].data(), 0, ggml_nbytes(k_cur));
+                } else if (k_cur->data) {
+                    memcpy(k_bufs[il].data(), k_cur->data, ggml_nbytes(k_cur));
+                }
+
+                ggml_backend_t v_backend = ggml_backend_sched_get_tensor_backend(sched.get(), v_cur);
+                if (v_backend) {
+                    ggml_backend_tensor_get_async(v_backend, v_cur, v_bufs[il].data(), 0, ggml_nbytes(v_cur));
+                } else if (v_cur->data) {
+                    memcpy(v_bufs[il].data(), v_cur->data, ggml_nbytes(v_cur));
+                }
+            }
+
+            ggml_backend_sched_synchronize(sched.get());
+
+            for (uint32_t il = 0; il < hmem->n_layer(); ++il) {
+                ggml_tensor * k_cur = hctx->k_cur_tensors[il];
+                ggml_tensor * v_cur = hctx->v_cur_tensors[il];
+                if (!k_cur || !v_cur) continue;
+
+                for (uint32_t t = 0; t < ubatch.n_tokens; ++t) {
+                    int32_t slot = hctx->token_slots[t];
+                    if (slot >= 0) {
+                        float* k_ptr = k_bufs[il].data() + t * hmem->n_embd_k();
+                        float* v_ptr = v_bufs[il].data() + t * hmem->n_embd_v();
+                        hmem->graph().write_kv(il, slot, k_ptr, v_ptr);
+                    }
+                }
+                // Important: HyphalMemory uses a CPU-shadowed pool, must sync to GGML tensors
+                hmem->graph().sync_to_ggml(il);
+            }
+        }
     }
 
     ret = GGML_STATUS_SUCCESS;

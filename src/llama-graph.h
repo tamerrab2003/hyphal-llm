@@ -25,6 +25,7 @@ class llama_kv_cache_iswa_context;
 class llama_memory_recurrent_context;
 class llama_memory_hybrid_context;
 class llama_memory_hybrid_iswa_context;
+class llama_hyphal_memory_context;
 
 // certain models (typically multi-modal) can produce different types of graphs
 enum llm_graph_type {
@@ -285,11 +286,9 @@ class llm_graph_input_attn_kv : public llm_graph_input_i {
 public:
     llm_graph_input_attn_kv(
             const llama_hparams & hparams,
-            const llama_cparams & cparams,
-            const llama_kv_cache_context * mctx) :
+            const llama_cparams & cparams) :
         hparams(hparams),
-        cparams(cparams),
-        mctx(mctx) {
+        cparams(cparams) {
     }
     ~llm_graph_input_attn_kv() = default;
 
@@ -318,7 +317,8 @@ public:
     const llama_hparams hparams;
     const llama_cparams cparams;
 
-    const llama_kv_cache_context * mctx;
+    const llama_kv_cache_context * mctx = nullptr;
+    const llama_hyphal_memory_context * mctx_hyphal = nullptr;
 };
 
 // V-less input for the KV cache

@@ -282,7 +282,10 @@ bool hyphal_graph::load(const std::string & path) {
 
 llama_hyphal_memory_context::llama_hyphal_memory_context(
         llama_hyphal_memory * m, llama_memory_status s)
-    : mem(m), status_(s) {}
+    : mem(m), status_(s) {
+    k_cur_tensors.resize(m->n_layer(), nullptr);
+    v_cur_tensors.resize(m->n_layer(), nullptr);
+}
 
 llama_memory_status llama_hyphal_memory_context::get_status() const {
     return status_;
@@ -310,14 +313,14 @@ uint32_t llama_hyphal_memory_context::get_n_kv() const {
 // Shape: [n_embd_k, max_nodes] — attention reads all nodes
 ggml_tensor * llama_hyphal_memory_context::get_k(
         ggml_context * ctx, int32_t il) const {
-    (void)ctx;
-    return mem->graph().k_tensors[il];
+    ggml_tensor * t = mem->graph().k_tensors[il];
+    return ggml_reshape_3d(ctx, t, mem->n_embd_head_k(), mem->n_head_kv(), mem->max_nodes());
 }
 
 ggml_tensor * llama_hyphal_memory_context::get_v(
         ggml_context * ctx, int32_t il) const {
-    (void)ctx;
-    return mem->graph().v_tensors[il];
+    ggml_tensor * t = mem->graph().v_tensors[il];
+    return ggml_reshape_3d(ctx, t, mem->n_embd_head_v(), mem->n_head_kv(), mem->max_nodes());
 }
 
 // cpy_k: intercept the K write, route into HyphalGraph instead of KV cache
@@ -348,6 +351,8 @@ ggml_tensor * llama_hyphal_memory_context::cpy_k(
         }
     }
 
+    k_cur_tensors[il] = k_cur;
+
     // Return a no-op tensor (zero copy) — data is managed outside GGML
     return ggml_view_1d(ctx, k_cur, 1, 0);
 }
@@ -355,25 +360,66 @@ ggml_tensor * llama_hyphal_memory_context::cpy_k(
 ggml_tensor * llama_hyphal_memory_context::cpy_v(
         ggml_context * ctx, ggml_tensor * v_cur,
         ggml_tensor * v_idxs, int32_t il) const {
-    (void)ctx; (void)v_idxs; (void)il; (void)v_cur;
+    (void)ctx; (void)v_idxs;
+    const_cast<llama_hyphal_memory_context*>(this)->v_cur_tensors[il] = v_cur;
     return ggml_view_1d(ctx, v_cur, 1, 0);
 }
 
 ggml_tensor * llama_hyphal_memory_context::build_input_k_idxs(
         ggml_context * ctx, const llama_ubatch & ubatch) const {
-    // Return a dummy index tensor — HyphalGraph uses slot indices directly
     int32_t n_tok = (int32_t)ubatch.n_tokens;
     ggml_tensor * t = ggml_new_tensor_1d(ctx, GGML_TYPE_I64, n_tok);
-    // Fill with 0..n_tok-1 as placeholder indices
-    for (int32_t i = 0; i < n_tok; i++) {
-        ((int64_t *)t->data)[i] = (int64_t)i;
-    }
     return t;
 }
 
 ggml_tensor * llama_hyphal_memory_context::build_input_v_idxs(
         ggml_context * ctx, const llama_ubatch & ubatch) const {
     return build_input_k_idxs(ctx, ubatch);
+}
+
+void llama_hyphal_memory_context::set_input_k_idxs(ggml_tensor * k_idxs, const llama_ubatch * ubatch) const {
+    int32_t n_tok = (int32_t)ubatch->n_tokens;
+    for (int32_t i = 0; i < n_tok; i++) {
+        ((int64_t *)k_idxs->data)[i] = (int64_t)token_slots[i];
+    }
+}
+
+void llama_hyphal_memory_context::set_input_v_idxs(ggml_tensor * v_idxs, const llama_ubatch * ubatch) const {
+    set_input_k_idxs(v_idxs, ubatch);
+}
+
+void llama_hyphal_memory_context::set_input_kq_mask(ggml_tensor * kq_mask, const llama_ubatch * ubatch, bool causal) const {
+    float * data = (float *) kq_mask->data;
+    
+    // Fill the mask with -INFINITY by default
+    std::fill(data, data + ggml_nelements(kq_mask), -INFINITY);
+    
+    const uint32_t n_nodes = mem->graph().max_nodes;
+    const auto & graph = mem->graph();
+    
+    // We only have 1 stream for hyphal memory
+    for (uint32_t t = 0; t < ubatch->n_tokens; t++) {
+        llama_seq_id s1 = ubatch->seq_id ? ubatch->seq_id[0][t] : 0;
+        llama_pos    p1 = ubatch->pos ? ubatch->pos[t] : t;
+        const uint64_t idst = t * n_nodes;
+
+        for (uint32_t kb = 0; kb < n_nodes; kb++) {
+            // Check if slot kb is occupied
+            if (!graph.nodes[0][kb].occupied) continue;
+            
+            llama_seq_id s0 = graph.nodes[0][kb].seq_id;
+            llama_pos    p0 = graph.nodes[0][kb].pos;
+            
+            // Mask different sequences
+            if (s0 != s1) continue;
+            
+            // Mask future tokens (causal mask)
+            if (causal && p0 > p1) continue;
+            
+            // It's a valid hit!
+            data[idst + kb] = 0.0f;
+        }
+    }
 }
 
 void llama_hyphal_memory_context::set_input(const llama_ubatch * ubatch) {
