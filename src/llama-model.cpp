@@ -9352,3 +9352,27 @@ bool llama_model_is_diffusion(const llama_model * model) {
 const std::vector<std::pair<std::string, ggml_tensor *>> & llama_internal_get_tensor_map(const llama_model * model) {
     return model->tensors_by_name;
 }
+
+void llama_model_habituate(struct llama_model * model) {
+    const int n_layer = model->hparams.n_layer;
+    if (n_layer <= 1) return;
+    
+    int zones_count = (int)(n_layer * 0.65);
+    auto & layer0 = model->layers[0];
+    
+    for (int i = 1; i < zones_count; ++i) {
+        auto & layerI = model->layers[i];
+        
+        // Map Zone 1 (Habitual) weights to Layer 0
+        layerI.wq = layer0.wq;
+        layerI.wk = layer0.wk;
+        layerI.wv = layer0.wv;
+        layerI.wo = layer0.wo;
+        layerI.attn_norm = layer0.attn_norm;
+        
+        layerI.ffn_gate = layer0.ffn_gate;
+        layerI.ffn_up   = layer0.ffn_up;
+        layerI.ffn_down = layer0.ffn_down;
+        layerI.ffn_norm = layer0.ffn_norm;
+    }
+}
