@@ -305,3 +305,21 @@ configure_file(cmake/llama.pc.in
 
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/llama.pc"
         DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
+
+# CPack configuration
+set(CPACK_PACKAGE_NAME "hyphal-llm")
+set(CPACK_PACKAGE_VENDOR "HyphalLLM Team")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "HyphalLLM: Bio-inspired LLM Optimization")
+set(CPACK_PACKAGE_VERSION ${LLAMA_INSTALL_VERSION})
+set(CPACK_PACKAGE_INSTALL_DIRECTORY "HyphalLLM")
+set(CPACK_RESOURCE_FILE_LICENSE "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE")
+
+if (WIN32)
+    set(CPACK_GENERATOR "ZIP;NSIS")
+elseif (APPLE)
+    set(CPACK_GENERATOR "TGZ;DragNDrop")
+else ()
+    set(CPACK_GENERATOR "TGZ;DEB;RPM")
+endif()
+
+include(CPack)
