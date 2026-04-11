@@ -309,6 +309,7 @@ install(FILES "${CMAKE_CURRENT_BINARY_DIR}/llama.pc"
 # CPack configuration
 set(CPACK_PACKAGE_NAME "hyphal-llm")
 set(CPACK_PACKAGE_VENDOR "HyphalLLM Team")
+set(CPACK_PACKAGE_CONTACT "tamer.awad@menofia.edu.eg")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "HyphalLLM: Bio-inspired LLM Optimization")
 set(CPACK_PACKAGE_VERSION ${LLAMA_INSTALL_VERSION})
 set(CPACK_PACKAGE_INSTALL_DIRECTORY "HyphalLLM")
